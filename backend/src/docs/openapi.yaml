@@ -1,0 +1,524 @@
+openapi: 3.0.3
+info:
+  title: Simple Shopping Cart API
+  description: |
+    REST API that powers the React storefront.
+    Authentication is JWT (Bearer *or* http-only cookie named **token**).
+  version: 1.0.0
+servers:
+  - url: http://localhost:4000
+tags:
+  - name: Auth
+  - name: Users
+  - name: Products
+  - name: Categories
+  - name: Cart
+  - name: Orders
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: token
+
+  schemas:
+    ## Generic
+    ErrorResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          enum: [error]
+        message:
+          type: string
+    SuccessResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [success]
+        data:
+          description: Response payload (varies by endpoint)
+          oneOf:
+            - {}
+        message:
+          type: string
+        meta:
+          type: object
+
+    ## Domain objects (public shape)
+    User:
+      type: object
+      properties:
+        id:        { type: string, example: cln9… }
+        email:     { type: string, format: email }
+        firstName: { type: string }
+        lastName:  { type: string }
+        createdAt: { type: string, format: date-time }
+    Category:
+      type: object
+      properties:
+        id:   { type: string }
+        name: { type: string }
+    Product:
+      type: object
+      properties:
+        id:          { type: string }
+        name:        { type: string }
+        slug:        { type: string }
+        description: { type: string }
+        price:       { type: number, format: decimal, example: 79.99 }
+        stock:       { type: integer }
+        images:
+          type: array
+          items: { type: string, format: uri }
+        rating:      { type: number, example: 4.3 }
+        ratingCount: { type: integer }
+        categoryId:  { type: string }
+        createdAt:   { type: string, format: date-time }
+    CartItem:
+      type: object
+      properties:
+        id:       { type: string }
+        product:  { $ref: '#/components/schemas/Product' }
+        quantity: { type: integer }
+    CartSummary:
+      type: object
+      properties:
+        itemCount: { type: integer }
+        subtotal:  { type: number }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+    ShippingInfo:
+      type: object
+      required: [fullName, address1, city, state, postalCode, country]
+      properties:
+        fullName:    { type: string }
+        address1:    { type: string }
+        address2:    { type: string }
+        city:        { type: string }
+        state:       { type: string }
+        postalCode:  { type: string }
+        country:     { type: string }
+        phone:       { type: string }
+    OrderItem:
+      type: object
+      properties:
+        id:        { type: string }
+        productId: { type: string }
+        name:      { type: string }
+        price:     { type: number }
+        quantity:  { type: integer }
+    Order:
+      type: object
+      properties:
+        id:         { type: string }
+        status:     { type: string, example: processing }
+        total:      { type: number }
+        shipping:   { $ref: '#/components/schemas/ShippingInfo' }
+        paymentInfo: { type: object }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderItem' }
+        createdAt: { type: string, format: date-time }
+
+  requestBodies:
+    RegisterBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, password, firstName, lastName]
+            properties:
+              email:     { type: string, format: email }
+              password:  { type: string, minLength: 6 }
+              firstName: { type: string }
+              lastName:  { type: string }
+    LoginBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, password]
+            properties:
+              email:    { type: string, format: email }
+              password: { type: string }
+    AddToCartBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [productId]
+            properties:
+              productId: { type: string }
+              qty:       { type: integer, default: 1, minimum: 1 }
+    UpdateQtyBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [qty]
+            properties:
+              qty: { type: integer, minimum: 1 }
+    CreateOrderBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [shipping, paymentInfo]
+            properties:
+              shipping:    { $ref: '#/components/schemas/ShippingInfo' }
+              paymentInfo: { type: object }
+
+paths:
+  ## ──────────────────────── Auth ────────────────────────
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      requestBody: { $ref: '#/components/requestBodies/RegisterBody' }
+      responses:
+        "201":
+          description: Registered & logged-in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/User' }
+        "409": { $ref: '#/components/responses/Error409' }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      requestBody: { $ref: '#/components/requestBodies/LoginBody' }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/User' }
+        "400": { $ref: '#/components/responses/Error400' }
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/User' }
+        "401": { $ref: '#/components/responses/Error401' }
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessResponse' }
+
+  ## ──────────────────────── Users ───────────────────────
+  /api/users/me:
+    get:
+      tags: [Users]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/User' }
+
+    put:
+      tags: [Users]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/User'
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/User' }
+
+  ## ──────────────────────── Products ────────────────────
+  /api/products:
+    get:
+      tags: [Products]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: categoryId
+          schema: { type: string }
+        - in: query
+          name: minPrice
+          schema: { type: number }
+        - in: query
+          name: maxPrice
+          schema: { type: number }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Product list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+                  meta:
+                    type: object
+                    properties:
+                      page:      { type: integer }
+                      limit:     { type: integer }
+                      total:     { type: integer }
+                      pageCount: { type: integer }
+
+  /api/products/{idOrSlug}:
+    get:
+      tags: [Products]
+      parameters:
+        - in: path
+          name: idOrSlug
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Product detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/Product' }
+        "404": { $ref: '#/components/responses/Error404' }
+
+  ## ──────────────────────── Categories ──────────────────
+  /api/categories:
+    get:
+      tags: [Categories]
+      responses:
+        "200":
+          description: Category list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Category' }
+
+  ## ──────────────────────── Cart ────────────────────────
+  /api/cart:
+    get:
+      tags: [Cart]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Current cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CartSummary' }
+
+    post:
+      tags: [Cart]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/AddToCartBody' }
+      responses:
+        "201":
+          description: Added to cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CartSummary' }
+
+    delete:
+      tags: [Cart]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Cart cleared
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CartSummary' }
+
+  /api/cart/{itemId}:
+    put:
+      tags: [Cart]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema: { type: string }
+      requestBody: { $ref: '#/components/requestBodies/UpdateQtyBody' }
+      responses:
+        "200":
+          description: Quantity updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CartSummary' }
+    delete:
+      tags: [Cart]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Item removed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CartSummary' }
+
+  ## ──────────────────────── Orders ──────────────────────
+  /api/orders:
+    post:
+      tags: [Orders]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/CreateOrderBody' }
+      responses:
+        "201":
+          description: Order placed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/Order' }
+
+    get:
+      tags: [Orders]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Order list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Order' }
+
+  /api/orders/{id}:
+    get:
+      tags: [Orders]
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Single order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/Order' }
+        "404": { $ref: '#/components/responses/Error404' }
+
+# ───────────────────────── Custom error shortcuts ──────────────────────────
+components:
+  responses:
+    Error400:
+      description: Bad request / validation failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Error401:
+      description: Unauthorized
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Error404:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Error409:
+      description: Conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }

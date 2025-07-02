@@ -1,0 +1,85 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  isAdmin      Boolean     @default(false)
+
+  cartItems    CartItem[]
+  orders       Order[]
+  createdAt    DateTime    @default(now())
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  products  Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  price       Decimal  @db.Decimal(10, 2)
+  stock       Int
+  images      Json
+  rating      Float    @default(0)
+  ratingCount Int      @default(0)
+
+  category    Category @relation(fields: [categoryId], references: [id])
+  categoryId  String
+
+  cartItems   CartItem[]
+  createdAt   DateTime @default(now())
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  quantity  Int
+
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  product   Product  @relation(fields: [productId], references: [id])
+  productId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([id, userId], name: "id_userId") // matches code path in CartItemModel
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  status      String      @default("processing")
+  total       Decimal     @db.Decimal(10, 2)
+  shipping    Json
+  paymentInfo Json
+
+  user        User        @relation(fields: [userId], references: [id])
+  userId      String
+
+  items       OrderItem[]
+  createdAt   DateTime    @default(now())
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  productId String
+  name      String
+  price     Decimal  @db.Decimal(10, 2)
+  quantity  Int
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  orderId String
+}

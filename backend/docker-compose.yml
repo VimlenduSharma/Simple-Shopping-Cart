@@ -1,0 +1,59 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: cart-db
+    restart: unless-stopped
+    environment:
+      # these can be overridden via your .env file
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE:      ${DB_NAME:-cart}
+      MYSQL_USER:          ${DB_USER:-cart_user}
+      MYSQL_PASSWORD:      ${DB_PASSWORD:-cart_pass}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - '3306:3306'
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping","-h","localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cart-api
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '4000:4000'
+    env_file:
+      - .env
+    environment:
+      # override your .env defaults if needed
+      DATABASE_URL: ${DATABASE_URL:-mysql://${DB_USER:-cart_user}:${DB_PASSWORD:-cart_pass}@db:3306/${DB_NAME:-cart}}
+      JWT_SECRET:   ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGIN:  ${CORS_ORIGIN:-http://localhost:3000}
+      NODE_ENV:     ${NODE_ENV:-development}
+      PORT:         ${PORT:-4000}
+      LOG_LEVEL:    ${LOG_LEVEL:-info}
+      # If you have SSL certs in the image or a volume
+      SSL_KEY_PATH:    ${SSL_KEY_PATH}
+      SSL_CERT_PATH:   ${SSL_CERT_PATH}
+    command: >
+      sh -c "
+        npm run seed &&
+        npm run dev
+      "
+    volumes:
+      - ./:/usr/src/app     # so code changes reflect immediately
+    working_dir: /usr/src/app
+
+volumes:
+  db_data:
